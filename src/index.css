@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background-color: #020617;
+    color: #f8fafc;
+    min-height: 100vh;
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0f172a; }
+  ::-webkit-scrollbar-thumb { background: #22c55e; border-radius: 3px; }
+}
+
+@layer components {
+  .btn-primary { @apply bg-green-500 hover:bg-green-400 text-slate-950 font-semibold px-6 py-3 rounded-xl transition-all duration-200 active:scale-95 shadow-lg; }
+  .btn-secondary { @apply bg-slate-800 hover:bg-slate-700 text-white font-semibold px-6 py-3 rounded-xl transition-all duration-200 border border-slate-700; }
+  .btn-ghost { @apply text-slate-400 hover:text-white hover:bg-slate-800 px-4 py-2 rounded-lg transition-all duration-200; }
+  .card { @apply bg-slate-900 border border-slate-800 rounded-2xl; }
+  .input-field { @apply w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-all; }
+  .label { @apply block text-slate-400 text-sm font-medium mb-1.5; }
+  .badge-green { @apply inline-flex items-center gap-1 bg-green-500/20 text-green-400 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-yellow { @apply inline-flex items-center gap-1 bg-yellow-500/20 text-yellow-400 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-red { @apply inline-flex items-center gap-1 bg-red-500/20 text-red-400 text-xs font-medium px-2.5 py-1 rounded-full; }
+  .badge-blue { @apply inline-flex items-center gap-1 bg-blue-500/20 text-blue-400 text-xs font-medium px-2.5 py-1 rounded-full; }
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #22c55e, #86efac);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glow-green { box-shadow: 0 0 30px rgba(34, 197, 94, 0.3); }
+
+.hero-bg {
+  background: radial-gradient(ellipse at 20% 50%, rgba(34, 197, 94, 0.15) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 20%, rgba(134, 239, 172, 0.08) 0%, transparent 50%),
+              #020617;
+}
+
+.court-pattern {
+  background-image: linear-gradient(rgba(34, 197, 94, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 197, 94, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.glass {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-overlay {
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7) sepia(1) saturate(5) hue-rotate(90deg);
+  cursor: pointer;
+}
