@@ -13,24 +13,24 @@ const generateToken = (uid) => {
 router.post('/register', async (req, res) => {
   const { email, password, fullName, phone } = req.body;
   try {
-    const userExists = await pool.query('SELECT * FROM admin WHERE email = $1', [email]);
+    const userExists = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (userExists.rows.length > 0) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
-    const uid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const id = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
 
     await pool.query(
-      `INSERT INTO admin (uid, email, password_hash, full_name, phone, role) 
+      `INSERT INTO users (id, email, password_hash, display_name, phone, role) 
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [uid, email, passwordHash, fullName, phone || '', 'admin']
+      [id, email, passwordHash, fullName, phone || '', 'user']
     );
 
-    const token = generateToken(uid);
+    const token = generateToken(id);
     res.status(201).json({ 
-      user: { uid, email, fullName, phone: phone || '', role: 'admin' }, 
+      user: { uid: id, email, fullName, phone: phone || '', role: 'user' }, 
       token 
     });
   } catch (error) {
@@ -44,8 +44,8 @@ router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
     const userResult = await pool.query(
-      `SELECT uid, email, role, password_hash, full_name, phone 
-       FROM admin 
+      `SELECT id as uid, email, role, password_hash, display_name as full_name, phone 
+       FROM users 
        WHERE email = $1`, 
       [email]
     );
@@ -94,9 +94,9 @@ export const protect = (req, res, next) => {
 router.get('/me', protect, async (req, res) => {
   try {
     const userResult = await pool.query(
-      `SELECT uid, email, role, full_name, phone 
-       FROM admin 
-       WHERE uid = $1`, 
+      `SELECT id as uid, email, role, display_name as full_name, phone 
+       FROM users 
+       WHERE id = $1`, 
       [req.userUid]
     );
     if (userResult.rows.length === 0) {
@@ -120,14 +120,14 @@ router.put('/profile', protect, async (req, res) => {
   const { fullName, phone } = req.body;
   try {
     await pool.query(
-      'UPDATE admin SET full_name = COALESCE($1, full_name), phone = COALESCE($2, phone) WHERE uid = $3',
+      'UPDATE users SET display_name = COALESCE($1, display_name), phone = COALESCE($2, phone) WHERE id = $3',
       [fullName, phone, req.userUid]
     );
     
     const userResult = await pool.query(
-      `SELECT uid, email, role, full_name, phone 
-       FROM admin 
-       WHERE uid = $1`, 
+      `SELECT id as uid, email, role, display_name as full_name, phone 
+       FROM users 
+       WHERE id = $1`, 
       [req.userUid]
     );
     const row = userResult.rows[0];
@@ -140,6 +140,81 @@ router.put('/profile', protect, async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Forgot Password (SMS OTP)
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const userResult = await pool.query('SELECT id as uid, email, phone FROM users WHERE email = $1', [email]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = userResult.rows[0];
+    if (!user.phone) {
+      return res.status(400).json({ error: 'No phone number associated with this account.' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otp, 10);
+    
+    // Create JWT with OTP hash
+    const token = jwt.sign({ email, otpHash }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+
+    // Send SMS
+    const { sendSMS } = await import('../utils/m360.js');
+    await sendSMS(user.phone, `Your PickleZone reset code is: ${otp}. It expires in 15 minutes.`);
+
+    res.json({ message: 'OTP sent to your phone', token });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Verify OTP
+router.post('/verify-otp', async (req, res) => {
+  const { email, otp, token } = req.body;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    if (decoded.email !== email) {
+      return res.status(400).json({ error: 'Invalid token' });
+    }
+    
+    const isMatch = await bcrypt.compare(otp, decoded.otpHash);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Invalid or incorrect OTP' });
+    }
+    
+    const resetToken = jwt.sign({ email, canReset: true }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
+    res.json({ message: 'OTP verified', resetToken });
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(401).json({ error: 'Token expired or invalid' });
+  }
+});
+
+// Reset Password
+router.post('/reset-password', async (req, res) => {
+  const { email, newPassword, resetToken } = req.body;
+  try {
+    const decoded = jwt.verify(resetToken, process.env.JWT_SECRET || 'secret');
+    if (decoded.email !== email || !decoded.canReset) {
+      return res.status(400).json({ error: 'Invalid reset token' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(newPassword, salt);
+    
+    await pool.query('UPDATE users SET password_hash = $1 WHERE email = $2', [passwordHash, email]);
+    
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(401).json({ error: 'Token expired or invalid' });
   }
 });
 

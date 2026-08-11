@@ -60,8 +60,18 @@ export function AuthProvider({ children }) {
   };
 
   const resetPassword = async (email) => {
-    // Implement standard reset password flow or placeholder
-    console.log("Password reset requested for", email);
+    const { data } = await api.post('/auth/forgot-password', { email });
+    return data; // contains token and message
+  };
+
+  const verifyOtp = async (email, otp, token) => {
+    const { data } = await api.post('/auth/verify-otp', { email, otp, token });
+    return data; // contains resetToken and message
+  };
+
+  const submitNewPassword = async (email, newPassword, resetToken) => {
+    const { data } = await api.post('/auth/reset-password', { email, newPassword, resetToken });
+    return data; // contains message
   };
 
   const updateUserProfile = async (data) => {
@@ -74,7 +84,11 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, userProfile, loading, register, login, logout, resetPassword, updateUserProfile, refreshProfile }}
+      value={{ 
+        user, userProfile, loading, register, login, logout, 
+        resetPassword, verifyOtp, submitNewPassword, 
+        updateUserProfile, refreshProfile 
+      }}
     >
       {children}
     </AuthContext.Provider>

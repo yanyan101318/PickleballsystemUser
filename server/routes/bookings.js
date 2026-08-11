@@ -70,9 +70,19 @@ router.post('/bulk', protect, async (req, res) => {
   try {
     const b = req.body;
     await client.query('BEGIN');
+    await client.query('LOCK TABLE bookings IN EXCLUSIVE MODE');
     
     const newBookingIds = [];
     let isFirstDoc = true;
+    
+    const convertSlotToMinutes = (slot) => {
+      if (!slot) return 0;
+      const [time, mer] = slot.split(" ");
+      let [h, m] = time.split(":").map(Number);
+      if (mer === "PM" && h !== 12) h += 12;
+      if (mer === "AM" && h === 12) h = 0;
+      return h * 60 + m;
+    };
     
     // 1. Insert Bookings
     for (const occ of b.occurrences) {
@@ -80,14 +90,22 @@ router.post('/bulk', protect, async (req, res) => {
         
         // Conflict check
         const conflictResult = await client.query(
-          `SELECT id FROM bookings 
-           WHERE court_id = $1 AND booking_date = $2 AND time_slot = $3 
+          `SELECT id, time_slot, duration FROM bookings 
+           WHERE court_id = $1 AND booking_date = $2 
            AND status IN ('pending', 'approved', 'Pending', 'Approved', 'confirmed', 'Confirmed')`,
-          [c.id, occ.date, occ.timeSlot]
+          [c.id, occ.date]
         );
         
-        if (conflictResult.rows.length > 0) {
-          throw new Error(`Time slot ${occ.timeSlot} on ${occ.date} for court ${c.name} is already booked.`);
+        const newStart = convertSlotToMinutes(occ.timeSlot);
+        const newEnd = newStart + occ.duration * 60;
+        
+        for (const row of conflictResult.rows) {
+          const existingStart = convertSlotToMinutes(row.time_slot);
+          const existingEnd = existingStart + (parseFloat(row.duration) || 1) * 60;
+          
+          if (newStart < existingEnd && newEnd > existingStart) {
+            throw new Error(`Time slot overlaps with an existing booking on ${occ.date} for court ${c.name}.`);
+          }
         }
 
         const id = 'bkg_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
