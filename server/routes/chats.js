@@ -36,7 +36,13 @@ router.get('/messages', protect, async (req, res) => {
       senderId: m.sender_id,
       senderName: m.sender_name,
       text: m.text,
-      createdAt: m.created_at
+      createdAt: m.created_at,
+      isEdited: m.is_edited,
+      isDeleted: m.is_deleted,
+      isPinned: m.is_pinned,
+      reactions: m.reactions || {},
+      image: m.image,
+      groupId: m.group_id
     })));
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
@@ -46,33 +52,187 @@ router.get('/messages', protect, async (req, res) => {
 // Send message
 router.post('/messages', protect, async (req, res) => {
   try {
-    const { text, senderName } = req.body;
+    const { text, senderName, image, groupId } = req.body;
+    console.log('--- POST /messages received ---');
+    console.log('Text:', text);
+    console.log('Image is present:', !!image);
+    console.log('Image type:', typeof image);
+    console.log('Image length:', image ? image.length : 0);
+    
+    if (!text && !image) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
     let chat = await pool.query('SELECT id FROM chats WHERE user_id = $1', [req.userUid]);
     if (chat.rows.length === 0) {
       const newChatId = 'cht_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
       chat = await pool.query(
         'INSERT INTO chats (id, user_id, user_name, last_message, unread_by_admin) VALUES ($1, $2, $3, $4, true) RETURNING id',
-        [newChatId, req.userUid, senderName, text]
+        [newChatId, req.userUid, senderName, text || 'Sent an image']
       );
     } else {
       await pool.query(
         'UPDATE chats SET last_message = $1, last_message_at = NOW(), unread_by_admin = true, unread_by_customer = false WHERE user_id = $2',
-        [text, req.userUid]
+        [text || 'Sent an image', req.userUid]
       );
     }
     const chatId = chat.rows[0].id;
     const msgId = 'msg_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
     const msg = await pool.query(
-      'INSERT INTO messages (id, chat_id, sender_id, sender_name, text) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [msgId, chatId, req.userUid, senderName, text]
+      'INSERT INTO messages (id, chat_id, sender_id, sender_name, text, image, group_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+      [msgId, chatId, req.userUid, senderName, text, image, groupId || null]
     );
-    res.json({
+    
+    const formattedMsg = {
       id: msg.rows[0].id,
+      chatId: msg.rows[0].chat_id,
       senderId: msg.rows[0].sender_id,
       senderName: msg.rows[0].sender_name,
       text: msg.rows[0].text,
-      createdAt: msg.rows[0].created_at
-    });
+      createdAt: msg.rows[0].created_at,
+      isEdited: false,
+      isDeleted: false,
+      isPinned: false,
+      reactions: {},
+      image: msg.rows[0].image,
+      groupId: msg.rows[0].group_id
+    };
+    
+    if (req.io) {
+      req.io.to(chatId).to('admin_chats').emit('messageCreated', formattedMsg);
+    }
+    
+    res.json(formattedMsg);
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Edit message
+router.put('/messages/:id', protect, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const { id } = req.params;
+    
+    const check = await pool.query('SELECT sender_id, chat_id FROM messages WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    if (check.rows[0].sender_id !== req.userUid) return res.status(403).json({ error: 'Unauthorized' });
+    
+    const msg = await pool.query(
+      'UPDATE messages SET text = $1, is_edited = true WHERE id = $2 RETURNING *',
+      [text, id]
+    );
+    
+    const formattedMsg = {
+      id: msg.rows[0].id,
+      chatId: msg.rows[0].chat_id,
+      text: msg.rows[0].text,
+      isEdited: msg.rows[0].is_edited
+    };
+    
+    if (req.io) req.io.to(formattedMsg.chatId).to('admin_chats').emit('messageEdited', formattedMsg);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Delete message
+router.delete('/messages/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const check = await pool.query('SELECT sender_id, chat_id, group_id FROM messages WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    if (check.rows[0].sender_id !== req.userUid) return res.status(403).json({ error: 'Unauthorized' });
+    
+    const groupId = check.rows[0].group_id;
+    let msg;
+    
+    if (groupId) {
+      msg = await pool.query(
+        'UPDATE messages SET text = $1, is_deleted = true, image = NULL WHERE group_id = $2 RETURNING *',
+        ['This message was deleted', groupId]
+      );
+    } else {
+      msg = await pool.query(
+        'UPDATE messages SET text = $1, is_deleted = true, image = NULL WHERE id = $2 RETURNING *',
+        ['This message was deleted', id]
+      );
+    }
+    
+    if (req.io) req.io.to(msg.rows[0].chat_id).to('admin_chats').emit('messageDeleted', { id, chatId: msg.rows[0].chat_id, groupId });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Pin/Unpin message
+router.post('/messages/:id/pin', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const check = await pool.query('SELECT chat_id, is_pinned FROM messages WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    
+    const newStatus = !check.rows[0].is_pinned;
+    const msg = await pool.query(
+      'UPDATE messages SET is_pinned = $1 WHERE id = $2 RETURNING *',
+      [newStatus, id]
+    );
+    
+    if (req.io) req.io.to(msg.rows[0].chat_id).to('admin_chats').emit('messagePinned', { id, chatId: msg.rows[0].chat_id, isPinned: newStatus });
+    res.json({ success: true, isPinned: newStatus });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// React to message
+router.post('/messages/:id/react', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { emoji } = req.body;
+    
+    const check = await pool.query('SELECT chat_id, reactions FROM messages WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    
+    let reactions = check.rows[0].reactions || {};
+    
+    // Toggle reaction for this user
+    if (!reactions[emoji]) reactions[emoji] = [];
+    
+    const userIndex = reactions[emoji].indexOf(req.userUid);
+    if (userIndex > -1) {
+      reactions[emoji].splice(userIndex, 1);
+      if (reactions[emoji].length === 0) delete reactions[emoji];
+    } else {
+      reactions[emoji].push(req.userUid);
+    }
+    
+    await pool.query('UPDATE messages SET reactions = $1 WHERE id = $2', [JSON.stringify(reactions), id]);
+    
+    if (req.io) req.io.to(check.rows[0].chat_id).to('admin_chats').emit('messageReacted', { id, chatId: check.rows[0].chat_id, reactions });
+    res.json({ success: true, reactions });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Report message
+router.post('/messages/:id/report', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    const reportId = 'rpt_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
+    await pool.query(
+      'INSERT INTO message_reports (id, message_id, reporter_id, reason) VALUES ($1, $2, $3, $4)',
+      [reportId, id, req.userUid, reason]
+    );
+    
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -107,7 +267,13 @@ router.get('/admin/chats/:chatId/messages', protect, async (req, res) => {
       senderId: m.sender_id,
       senderName: m.sender_name,
       text: m.text,
-      createdAt: m.created_at
+      createdAt: m.created_at,
+      isEdited: m.is_edited,
+      isDeleted: m.is_deleted,
+      isPinned: m.is_pinned,
+      reactions: m.reactions || {},
+      image: m.image,
+      groupId: m.group_id
     })));
   } catch (error) {
     res.status(500).json({ error: 'Server error' });

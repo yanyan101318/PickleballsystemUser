@@ -11,6 +11,7 @@ import announcementsRoutes from './routes/announcements.js';
 import matchesRoutes from './routes/matches.js'; // Might map to bookings/activity logs
 import ordersRoutes from './routes/orders.js';
 import chatsRoutes from './routes/chats.js';
+import pool from './db.js';
 
 dotenv.config();
 
@@ -45,10 +46,46 @@ app.use('/api/chats', chatsRoutes);
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
+  socket.on('joinChat', (chatId) => {
+    socket.join(chatId);
+    console.log(`Socket ${socket.id} joined chat ${chatId}`);
+  });
+
+  socket.on('joinAdmin', () => {
+    socket.join('admin_chats');
+    console.log(`Socket ${socket.id} joined admin_chats`);
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });
 });
+
+// Setup Postgres LISTEN for chat events
+const setupListen = async () => {
+  try {
+    const client = await pool.connect();
+    await client.query('LISTEN chat_events');
+    
+    client.on('notification', (msg) => {
+      if (msg.channel === 'chat_events') {
+        try {
+          const data = JSON.parse(msg.payload);
+          if (data.event && data.chatId && data.payload) {
+            io.to(data.chatId).emit(data.event, data.payload);
+          }
+        } catch (e) {
+          console.error("Error parsing chat_events payload", e);
+        }
+      }
+    });
+    
+    console.log("Listening for Postgres chat_events");
+  } catch (err) {
+    console.error("Postgres listen error:", err);
+  }
+};
+setupListen();
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
