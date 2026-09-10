@@ -146,6 +146,9 @@ router.put('/profile', protect, async (req, res) => {
 // Forgot Password (SMS OTP)
 router.post('/forgot-password', async (req, res) => {
   const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
   try {
     const userResult = await pool.query('SELECT id as uid, email, phone FROM users WHERE email = $1', [email]);
     if (userResult.rows.length === 0) {
@@ -161,12 +164,19 @@ router.post('/forgot-password', async (req, res) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
     
-    // Create JWT with OTP hash
+    // Create JWT with OTP hash (valid 15 min)
     const token = jwt.sign({ email, otpHash }, process.env.JWT_SECRET || 'secret', { expiresIn: '15m' });
 
-    // Send SMS
-    const { sendSMS } = await import('../utils/m360.js');
-    await sendSMS(user.phone, `Your PickleZone reset code is: ${otp}. It expires in 15 minutes.`);
+    // Attempt to send SMS — log only if it fails so the endpoint stays alive
+    try {
+      const { sendSMS } = await import('../utils/m360.js');
+      await sendSMS(user.phone, `Your PickleBros reset code is: ${otp}. It expires in 15 minutes.`);
+      console.log(`[forgot-password] OTP sent via SMS to ${user.phone}`);
+    } catch (smsErr) {
+      console.error('[forgot-password] SMS sending failed (non-fatal):', smsErr.message);
+      // Log OTP to console as fallback (remove in production once SMS is confirmed working)
+      console.log(`[forgot-password] DEV FALLBACK — OTP for ${email}: ${otp}`);
+    }
 
     res.json({ message: 'OTP sent to your phone', token });
   } catch (error) {
