@@ -32,21 +32,13 @@ function LoadingFallback() {
 
 function App() {
   useEffect(() => {
-    if (navigator.serviceWorker) {
+    if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
-        let cleared = false;
         for (let registration of registrations) {
           registration.unregister();
-          cleared = true;
         }
-        if (cleared) {
-          caches.keys().then((names) => {
-            for (let name of names) caches.delete(name);
-          }).then(() => {
-            console.log("Cleared PWA cache, reloading...");
-            window.location.reload();
-          });
-        }
+      }).catch((err) => {
+        console.error("Service worker unregistration error:", err);
       });
     }
   }, []);
