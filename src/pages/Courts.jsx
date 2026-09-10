@@ -38,9 +38,10 @@ export default function Courts() {
       try {
         const list = await fetchCourts();
         if (cancelled) return;
-        setCourts(list);
+        setCourts(Array.isArray(list) ? list : []);
       } catch (e) {
         if (!cancelled) setError(e?.message || "Failed to load courts");
+        setCourts([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -49,16 +50,18 @@ export default function Courts() {
   }, []);
 
   const courtsWithImages = useMemo(() => {
+    if (!Array.isArray(courts)) return [];
     return courts.map((court) => ({
       ...court,
-      displayImageUrl: court.img || withRandomCourtImages([court])[0].displayImageUrl,
+      displayImageUrl: court?.img || withRandomCourtImages([court])?.[0]?.displayImageUrl || "",
     }));
   }, [courts]);
 
   const filtered = useMemo(() => {
+    if (!Array.isArray(courtsWithImages)) return [];
     return courtsWithImages
       .filter((c) => filter === "All" || c.type === filter)
-      .sort((a, b) => (sort === "price" ? a.pricePerHour - b.pricePerHour : b.rating - a.rating));
+      .sort((a, b) => (sort === "price" ? (a.pricePerHour || 0) - (b.pricePerHour || 0) : (b.rating || 0) - (a.rating || 0)));
   }, [courtsWithImages, filter, sort]);
 
   return (

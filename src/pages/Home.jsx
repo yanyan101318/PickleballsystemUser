@@ -13,8 +13,8 @@ const features = [
 ];
 
 function formatAvgCourtRating(courts) {
-  if (!courts.length) return "—";
-  const rated = courts.filter((c) => c.rating > 0);
+  if (!Array.isArray(courts) || !courts.length) return "—";
+  const rated = courts.filter((c) => c && typeof c.rating === 'number' && c.rating > 0);
   if (!rated.length) return "—";
   const avg = rated.reduce((s, c) => s + c.rating, 0) / rated.length;
   return `${avg.toFixed(1)}★`;
@@ -34,10 +34,11 @@ export default function Home() {
       try {
         const courtsList = await fetchCourts();
         if (cancelled) return;
-        setCourts(courtsList);
+        setCourts(Array.isArray(courtsList) ? courtsList : []);
       } catch (err) {
         if (cancelled) return;
         setCourtsError(err?.message || "Failed to load courts");
+        setCourts([]);
       } finally {
         if (!cancelled) setStatsLoading(false);
       }
@@ -46,14 +47,15 @@ export default function Home() {
   }, []);
 
   const previewCourts = useMemo(() => {
+    if (!Array.isArray(courts)) return [];
     const withImg = courts.map((court) => ({
       ...court,
-      displayImageUrl: court.img || withRandomCourtImages([court])[0].displayImageUrl,
+      displayImageUrl: court?.img || withRandomCourtImages([court])?.[0]?.displayImageUrl || "",
     }));
-    return [...withImg].sort((a, b) => b.rating - a.rating).slice(0, 3);
+    return [...withImg].sort((a, b) => (b?.rating || 0) - (a?.rating || 0)).slice(0, 3);
   }, [courts]);
 
-  const courtCountDisplay = statsLoading ? "…" : String(courts.length);
+  const courtCountDisplay = statsLoading ? "…" : String(Array.isArray(courts) ? courts.length : 0);
   const ratingDisplay     = useMemo(
     () => (statsLoading ? "…" : formatAvgCourtRating(courts)),
     [courts, statsLoading],
@@ -134,10 +136,10 @@ export default function Home() {
           </h2>
           <p className="text-slate-500 text-center mb-10 sm:mb-12">Everything you need for the perfect game</p>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {features.map(({ icon: Icon, title, desc }) => (
+            {(Array.isArray(features) ? features : []).map(({ icon: Icon, title, desc }) => (
               <div key={title} className="card p-6 hover:border-green-500/30 transition-colors group">
                 <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center mb-4 group-hover:bg-green-500/20 transition-colors">
-                  <Icon size={22} className="text-green-400" />
+                  {Icon && typeof Icon === 'function' ? <Icon size={22} className="text-green-400" /> : null}
                 </div>
                 <h3 className="text-white font-semibold mb-2">{title}</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
@@ -162,13 +164,13 @@ export default function Home() {
 
           {statsLoading && <p className="text-center text-slate-500 py-8">Loading courts…</p>}
           {courtsError  && <p className="text-center text-red-400 py-8">{courtsError}</p>}
-          {!statsLoading && !courtsError && previewCourts.length === 0 && (
+          {!statsLoading && !courtsError && (!Array.isArray(previewCourts) || previewCourts.length === 0) && (
             <p className="text-center text-slate-500 py-8">
               No courts yet. Add documents to the courts collection in Firestore.
             </p>
           )}
 
-          {!statsLoading && !courtsError && previewCourts.length > 0 && (
+          {!statsLoading && !courtsError && Array.isArray(previewCourts) && previewCourts.length > 0 && (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {previewCourts.map((court) => (
                 <div

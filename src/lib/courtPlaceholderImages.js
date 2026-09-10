@@ -10,7 +10,7 @@ export const COURT_PLACEHOLDER_IMAGES = [
  * Firestore `img` is not used here so every visit shows variety from the pool.
  */
 export function withRandomCourtImages(courts) {
-  if (!courts?.length) return [];
+  if (!Array.isArray(courts) || !courts.length) return [];
   const pool = COURT_PLACEHOLDER_IMAGES;
   return courts.map((c) => ({
     ...c,
