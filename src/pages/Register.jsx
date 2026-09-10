@@ -19,12 +19,19 @@ export default function Register() {
     if (form.password.length < 6) return toast.error("Password must be at least 6 characters.");
     setLoading(true);
     try {
-      await register(form);
-      toast.success("Account created! Welcome to PickleZone 🎉");
+      await register({ fullName: form.fullName, email: form.email, phone: form.phone, password: form.password });
+      toast.success("Account created! Welcome to PickleBros 🎉");
       navigate("/");
     } catch (err) {
-      if (err.code === "auth/email-already-in-use") toast.error("Email already registered.");
-      else toast.error("Registration failed. Please try again.");
+      const apiMsg = err?.response?.data?.error || err?.message || null;
+      if (apiMsg?.toLowerCase().includes("already")) {
+        toast.error("Email already registered.");
+      } else if (apiMsg) {
+        toast.error(apiMsg);
+      } else {
+        toast.error("Registration failed. Please try again.");
+      }
+      console.error("Registration error:", err?.response?.data || err);
     } finally {
       setLoading(false);
     }
