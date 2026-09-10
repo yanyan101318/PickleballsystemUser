@@ -54,7 +54,7 @@ router.get('/slots', async (req, res) => {
     const ids = courtIds.split(',');
     const result = await pool.query(
       `SELECT time_slot, duration, status FROM bookings 
-       WHERE court_id = ANY($1::varchar[]) AND booking_date = $2 
+       WHERE court_id::text = ANY($1::text[]) AND booking_date = $2 
        AND status IN ('pending', 'approved', 'Pending', 'Approved', 'confirmed', 'Confirmed')`,
       [ids, date]
     );
@@ -91,7 +91,7 @@ router.post('/bulk', protect, async (req, res) => {
         // Conflict check
         const conflictResult = await client.query(
           `SELECT id, time_slot, duration FROM bookings 
-           WHERE court_id = $1 AND booking_date = $2 
+           WHERE court_id::text = $1::text AND booking_date = $2 
            AND status IN ('pending', 'approved', 'Pending', 'Approved', 'confirmed', 'Confirmed')`,
           [c.id, occ.date]
         );
@@ -114,15 +114,23 @@ router.post('/bulk', protect, async (req, res) => {
         const isFirst = isFirstDoc;
         const equipment = isFirst ? b.equipmentLines : [];
 
+        // Gracefully handle foreign key constraint for user_id
+        await client.query(
+          `INSERT INTO users (id, email, display_name, phone) 
+           VALUES ($1, $2, $3, $4) 
+           ON CONFLICT (id) DO NOTHING`,
+          [req.userUid, `user_${req.userUid}@placeholder.com`, b.playerName || 'Guest', b.phone || '']
+        );
+
         await client.query(
           `INSERT INTO bookings (
             id, user_id, court_id, court_name, booking_date, time_slot, duration, 
             player_name, contact_number, notes, status, total_amount, promo_code, equipment
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::text[])`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)`,
           [
             id, req.userUid, c.id, c.name, occ.date, occ.timeSlot, occ.duration,
             b.playerName, b.phone, b.notes, 'pending', 
-            isFirst ? b.totalAmount : 0, b.promoCode, equipment.map(e => JSON.stringify(e))
+            isFirst ? b.totalAmount : 0, b.promoCode, JSON.stringify(equipment)
           ]
         );
         newBookingIds.push(id);
@@ -166,7 +174,7 @@ router.post('/bulk', protect, async (req, res) => {
       await client.query(
         `INSERT INTO borrow_records (
           id, borrower_name, items, status, expected_return_at
-        ) VALUES ($1, $2, $3, 'borrowed', NOW() + interval '1 hour' * $4)`,
+        ) VALUES ($1, $2, $3::jsonb, 'borrowed', NOW() + interval '1 hour' * $4)`,
         [
           borrowId, 
           b.playerName, 
@@ -176,7 +184,50 @@ router.post('/bulk', protect, async (req, res) => {
       );
     }
 
+    // 5. Create Notification Record
+    const notifId = 'notif_' + Date.now().toString(36) + Math.random().toString(36).substring(2);
+    const courtNamesStr = b.selectedCourts?.map(c => c.name).join(', ') || 'Court';
+    const firstOcc = b.occurrences?.[0] || {};
+    const notifTitle = 'New Booking Received';
+    const notifMsg = `New booking received from ${b.playerName || 'Guest'} for ${courtNamesStr} on ${firstOcc.date || ''} (${firstOcc.timeSlot || ''})`;
+    const notifData = {
+      bookingIds: newBookingIds,
+      playerName: b.playerName || 'Guest',
+      courtName: courtNamesStr,
+      date: firstOcc.date,
+      timeSlot: firstOcc.timeSlot,
+      totalAmount: b.totalAmount
+    };
+
+    try {
+      await client.query(
+        `INSERT INTO notifications (id, type, title, message, data, is_read, created_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
+        [notifId, 'booking', notifTitle, notifMsg, JSON.stringify(notifData)]
+      );
+    } catch (notifErr) {
+      console.error('Failed to insert notification record:', notifErr.message);
+    }
+
     await client.query('COMMIT');
+
+    const notificationPayload = {
+      id: notifId,
+      type: 'booking',
+      title: notifTitle,
+      message: notifMsg,
+      data: notifData,
+      isRead: false,
+      is_read: false,
+      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString()
+    };
+
+    if (req.io) {
+      req.io.emit('new_notification', notificationPayload);
+      req.io.emit('new_booking', { notification: notificationPayload, bookingIds: newBookingIds, booking: notifData });
+    }
+
     res.json({ success: true, bookingIds: newBookingIds });
   } catch (error) {
     await client.query('ROLLBACK');

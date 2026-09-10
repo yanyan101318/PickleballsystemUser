@@ -184,23 +184,6 @@ function getCourtAvailability(court, selectedDate, selectedTimeSlot = null, sele
     return { isUnavailable: true, reason: "This court is currently inactive." };
   }
 
-  // Friday 12:00 PM (12:00 PM – 1:00 PM) is always unavailable across all courts
-  if (selectedDate) {
-    const selectedDow = new Date(`${selectedDate}T00:00:00`).getDay();
-    if (selectedDow === 5) { // 5 = Friday
-      if (selectedTimeSlot === "12:00 PM") {
-        return { isUnavailable: true, reason: "Closed for Praying Time" };
-      }
-      if (selectedStartTime && selectedEndTime) {
-        const startMin = convertTimeToMinutes(selectedStartTime);
-        const endMin = convertTimeToMinutes(selectedEndTime);
-        if (startMin < 780 && endMin > 720) { // 720 = 12:00 PM, 780 = 1:00 PM
-          return { isUnavailable: true, reason: "Closed for Praying Time" };
-        }
-      }
-    }
-  }
-
   // Check weekly closures (e.g. weekly scheduled closures/maintenance)
   const weeklyClosures = court.weeklyClosures || court.weekly_closures || [];
   if (weeklyClosures.length > 0 && selectedDate) {
@@ -241,7 +224,7 @@ function getCourtAvailability(court, selectedDate, selectedTimeSlot = null, sele
           }
         } else {
           // General court availability check (Step 1 court card selection).
-          // If the closure has a specific time range (e.g. 12:00 to 13:00 for "Praying Time"),
+          // If the closure has a specific time range (e.g. 12:00 to 13:00),
           // it only closes that specific time slot, NOT the entire court for the whole day.
           if (!hasTimeRange) {
             return { isUnavailable: true, reason: `Unavailable due to scheduled closure: ${reasonStr}.` };
@@ -325,36 +308,6 @@ function getCourtAvailability(court, selectedDate, selectedTimeSlot = null, sele
         }
       } else {
         return { isUnavailable: true, reason: `Unavailable on ${selectedDate} during the temporary closure window.` };
-      }
-    }
-  }
-
-  const activeStartTime = court.activeStartTime || court.activeStart || "";
-  const activeEndTime = court.activeEndTime || court.activeEnd || "";
-  if (activeStartTime && activeEndTime) {
-    const startMinutes = convertTimeToMinutes(activeStartTime);
-    const endMinutes = convertTimeToMinutes(activeEndTime);
-    if (startMinutes !== 0 || endMinutes !== 0) {
-      if (selectedTimeSlot) {
-        const slotMinutes = convertSlotToMinutes(selectedTimeSlot);
-        if (slotMinutes < startMinutes || slotMinutes >= endMinutes) {
-          return { isUnavailable: true, reason: `Available ${activeStartTime} – ${activeEndTime}` };
-        }
-      } else if (selectedStartTime && selectedEndTime) {
-        const customStartMinutes = convertTimeToMinutes(selectedStartTime);
-        const customEndMinutes = convertTimeToMinutes(selectedEndTime);
-        if (customEndMinutes <= customStartMinutes || customStartMinutes >= endMinutes || customEndMinutes <= startMinutes) {
-          return { isUnavailable: true, reason: `Available ${activeStartTime} – ${activeEndTime}` };
-        }
-      } else {
-        const now = new Date();
-        const todayStr = format(now, "yyyy-MM-dd");
-        if (selectedDate === todayStr) {
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          if (nowMinutes < startMinutes || nowMinutes >= endMinutes) {
-            return { isUnavailable: true, reason: `Open ${activeStartTime} – ${activeEndTime}` };
-          }
-        }
       }
     }
   }
@@ -897,8 +850,8 @@ export default function Book() {
     inventoryItems.map((item) => {
       const qty = form.equipmentQty[item.id] ?? 0;
       if (qty <= 0) return null;
-      const isSale = (item.type || "rent").toLowerCase() === "sale";
-      const unitPrice = isSale ? (item.salePrice ?? 0) : (item.pricePerHour ?? 0) * effectiveDuration;
+      const rentPrice = Number(item.pricePerHour) || 0;
+      const unitPrice = rentPrice * effectiveDuration;
       return { ...item, qty, lineTotal: unitPrice * qty, unitPrice };
     }).filter(Boolean),
     [inventoryItems, form.equipmentQty, effectiveDuration]
@@ -1324,7 +1277,6 @@ export default function Book() {
                         const isBooked = bookedSlots[slot] === "approved";
                         const isReserved = bookedSlots[slot] === "pending";
                         const isPast = isSlotPast(form.date, slot);
-                        const isMorningException = slot === "10:00 AM" || slot === "11:00 AM";
                         const disabled = isBooked || isReserved || isPast || isOpenPlay || availability.isUnavailable || selectedCourts.length === 0;
                         return (
                           <button key={slot} disabled={disabled} onClick={() => setForm({ ...form, timeSlot: slot })}
@@ -1342,7 +1294,7 @@ export default function Book() {
                             {!isOpenPlay && isBooked && <div className="text-[10px] mt-0.5">Booked</div>}
                             {!isOpenPlay && isReserved && <div className="text-[10px] mt-0.5">Reserved</div>}
                             {!isOpenPlay && !isBooked && !isReserved && isPast && <div className="text-[10px] mt-0.5">Unavailable</div>}
-                            {!isOpenPlay && !isBooked && !isReserved && !isPast && availability.isUnavailable && !isMorningException && <div className="text-[10px] mt-0.5 font-medium">{availability.reason || "Closed"}</div>}
+                            {!isOpenPlay && !isBooked && !isReserved && !isPast && availability.isUnavailable && <div className="text-[10px] mt-0.5 font-medium">{availability.reason || "Closed"}</div>}
                           </button>
                         );
                       })}
@@ -1374,25 +1326,25 @@ export default function Book() {
                   <p className="text-slate-500 text-sm py-4 text-center border border-dashed border-slate-700 rounded-xl">No add-ons in inventory yet.</p>
                 ) : (
                   <div className="space-y-5">
-                    {(["rent", "sale"].map((type) => {
-                      const items = inventoryItems.filter((item) => (item.type || "rent").toLowerCase() === type);
+                    {(() => {
+                      const items = inventoryItems.filter((item) => {
+                        const t = (item.type || "rental").toLowerCase();
+                        return t === "rent" || t === "rental";
+                      });
                       if (items.length === 0) return null;
-                      const title = type === "sale" ? "For Sale" : "For Rent";
                       return (
-                        <div key={type}>
+                        <div key="rent">
                           <div className="flex items-center gap-2 mb-3">
-                            <h4 className="text-white font-medium text-sm">{title}</h4>
+                            <h4 className="text-white font-medium text-sm">For Rent</h4>
                             <span className="text-[10px] uppercase tracking-wide text-slate-500">{items.length} item{items.length > 1 ? "s" : ""}</span>
                           </div>
                           <div className="space-y-3">
                             {items.map((item) => {
                               const qty = form.equipmentQty[item.id] ?? 0;
                               const out = item.availableQty <= 0;
-                              const isSale = (item.type || "rent").toLowerCase() === "sale";
-                              const unit = isSale ? (item.salePrice ?? 0) : (item.pricePerHour ?? 0) * effectiveDuration;
-                              const priceText = isSale
-                                ? `₱${item.salePrice ?? 0} per unit`
-                                : `₱${item.pricePerHour}/hr × ${effectiveDuration} hr = ₱${unit} per unit`;
+                              const rentPrice = Number(item.pricePerHour) || 0;
+                              const unit = rentPrice * effectiveDuration;
+                              const priceText = `₱${rentPrice} per hour`;
                               return (
                                 <div key={item.id} className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-xl border transition-all ${out ? "border-slate-800 bg-slate-900/50 opacity-60" : qty > 0 ? "border-green-500/50 bg-green-500/5" : "border-slate-700 bg-slate-800"}`}>
                                   <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -1428,7 +1380,7 @@ export default function Book() {
                           </div>
                         </div>
                       );
-                    }))}
+                    })()}
                   </div>
                 )}
                 <div className="mt-6 border-t border-slate-800 pt-5">

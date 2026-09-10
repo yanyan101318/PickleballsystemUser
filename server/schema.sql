@@ -136,3 +136,14 @@ CREATE TABLE messages (
     text TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id VARCHAR(255) PRIMARY KEY,
+    type VARCHAR(50) DEFAULT 'booking',
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    data JSONB DEFAULT '{}',
+    is_read BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+

@@ -404,9 +404,10 @@ export default function Bookings() {
         ) : (
           <div className="space-y-4">
             {paginatedBookings.map((booking) => {
-              const statusKey = normalizeBookingStatus(booking.status);
+              if (!booking) return null;
+              const statusKey = normalizeBookingStatus(booking?.status);
               const cfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG.pending;
-              const isExpanded = expanded === booking.id;
+              const isExpanded = expanded === booking?.id;
               const canCancel = statusKey === "pending" || statusKey === "approved";
 
               return (
@@ -415,20 +416,20 @@ export default function Bookings() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-2 flex-wrap">
-                          <h3 className="text-white font-semibold">{booking.courtName}</h3>
+                          <h3 className="text-white font-semibold">{booking?.courtName}</h3>
                           <span className={cfg.className}>
                             <cfg.Icon size={11} /> {cfg.label}
                           </span>
                         </div>
                         <div className="flex flex-wrap gap-4 text-sm text-slate-400">
                           <span className="flex items-center gap-1.5">
-                            <Calendar size={13} className="text-green-400" /> {booking.date}
+                            <Calendar size={13} className="text-green-400" /> {booking?.date}
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <Clock size={13} className="text-green-400" /> {booking.timeSlot}
+                            <Clock size={13} className="text-green-400" /> {booking?.startTime || booking?.timeSlot}
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <Users size={13} className="text-green-400" /> {booking.players} players
+                            <Users size={13} className="text-green-400" /> {booking?.players} players
                           </span>
                         </div>
                       </div>

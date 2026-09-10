@@ -11,6 +11,8 @@ import announcementsRoutes from './routes/announcements.js';
 import matchesRoutes from './routes/matches.js'; // Might map to bookings/activity logs
 import ordersRoutes from './routes/orders.js';
 import chatsRoutes from './routes/chats.js';
+import borrowRecordsRoutes from './routes/borrow-records.js';
+import notificationsRoutes from './routes/notifications.js';
 import pool from './db.js';
 
 dotenv.config();
@@ -42,6 +44,8 @@ app.use('/api/announcements', announcementsRoutes);
 app.use('/api/matches', matchesRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/chats', chatsRoutes);
+app.use('/api/borrow-records', borrowRecordsRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
@@ -53,7 +57,8 @@ io.on('connection', (socket) => {
 
   socket.on('joinAdmin', () => {
     socket.join('admin_chats');
-    console.log(`Socket ${socket.id} joined admin_chats`);
+    socket.join('admin_notifications');
+    console.log(`Socket ${socket.id} joined admin_chats & admin_notifications`);
   });
 
   socket.on('disconnect', () => {

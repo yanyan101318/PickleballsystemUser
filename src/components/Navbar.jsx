@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api";
+import { io } from "socket.io-client";
 import {
   Menu, X, Home, Calendar, User, LogOut, BookOpen,
   Bell, ChevronDown, Award, Zap
@@ -97,6 +98,33 @@ export default function Navbar() {
     };
 
     fetchAnnouncements();
+
+    // Listen for real-time announcements broadcast from backend
+    const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
+
+    socket.on("new_announcement", (newAnn) => {
+      if (newAnn && newAnn.isActive !== false) {
+        setAnnouncements((prev) => {
+          if (prev.some((a) => a.id === newAnn.id)) return prev;
+          return [newAnn, ...prev];
+        });
+      }
+    });
+
+    socket.on("announcement_updated", (updated) => {
+      if (!updated) return;
+      setAnnouncements((prev) =>
+        prev.map((a) => (a.id === updated.id ? updated : a))
+      );
+    });
+
+    socket.on("announcement_deleted", (deletedId) => {
+      setAnnouncements((prev) => prev.filter((a) => a.id !== deletedId));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [user]);
 
   const markAsSeen = () => {

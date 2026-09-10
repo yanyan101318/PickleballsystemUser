@@ -7,7 +7,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import MessageOptionsMenu from "./chat/MessageOptionsMenu";
 
 // Socket connection
-const socket = io("http://localhost:3000", { autoConnect: false });
+const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000", { autoConnect: false });
 
 export default function ChatWidget() {
   const { user, userProfile } = useAuth();

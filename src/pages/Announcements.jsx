@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bell, CalendarDays, Sparkles, AlertTriangle, X } from "lucide-react";
 import api from "../api";
+import { io } from "socket.io-client";
 
 function formatAnnouncementDate(value) {
   if (!value) return "Just now";
@@ -29,6 +30,32 @@ export default function Announcements() {
       }
     };
     fetchAnnouncements();
+
+    const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000");
+
+    socket.on("new_announcement", (newAnn) => {
+      if (newAnn && newAnn.isActive !== false) {
+        setAnnouncements((prev) => {
+          if (prev.some((a) => a.id === newAnn.id)) return prev;
+          return [newAnn, ...prev];
+        });
+      }
+    });
+
+    socket.on("announcement_updated", (updated) => {
+      if (!updated) return;
+      setAnnouncements((prev) =>
+        prev.map((a) => (a.id === updated.id ? updated : a))
+      );
+    });
+
+    socket.on("announcement_deleted", (deletedId) => {
+      setAnnouncements((prev) => prev.filter((a) => a.id !== deletedId));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   return (
